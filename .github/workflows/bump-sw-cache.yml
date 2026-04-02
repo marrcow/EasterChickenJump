@@ -1,0 +1,27 @@
+name: Bump SW cache version
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  bump:
+    # Skip if this commit was already made by the action itself
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump cache version to current timestamp
+        run: |
+          sed -i "s/const CACHE = 'chicken-jump-[^']*'/const CACHE = 'chicken-jump-$(date +%s)'/" sw.js
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet sw.js || (
+            git add sw.js &&
+            git commit -m "chore: bump SW cache version [skip ci]" &&
+            git push
+          )
