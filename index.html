@@ -408,8 +408,9 @@ function update() {
         eggs.splice(i, 1);
       } else {
         if (Date.now() < chicken.immortalUntil) {
-          // Immortal — destroy the scrambled egg
-          floaters.push({ x: e.x, y: e.y, text: '💥', alpha: 1, vy: -2 });
+          // Immortal — destroy the scrambled egg and score points
+          score += 5;
+          floaters.push({ x: e.x, y: e.y, text: '💥 +5', alpha: 1, vy: -2 });
           eggs.splice(i, 1);
           sndDestroy();
         } else {
