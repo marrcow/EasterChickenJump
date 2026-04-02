@@ -86,7 +86,7 @@ let spawnInterval, diffInterval;
 let currentSpeed, spawnDelay;
 let chicken, keys;
 let animId;
-let deathAnim = null, confetti = [];
+let deathAnim = null, confetti = [], isNewHigh = false;
 let deadSince = 0;  // timestamp when game ended
 const DEAD_DELAY = 2000; // ms before restart is allowed
 
@@ -268,6 +268,7 @@ function startGame() {
   floaters    = [];
   deathAnim   = null;
   confetti    = [];
+  isNewHigh   = false;
   currentSpeed = 4.5;
   spawnDelay   = 1800;
 
@@ -417,7 +418,7 @@ function update() {
           clearInterval(diffInterval);
           stopBgMusic();
           const hs = parseInt(localStorage.getItem('chickenHighScore') || '0');
-          const isNewHigh = score > hs;
+          isNewHigh = score > 0 && score > hs;
           if (isNewHigh) localStorage.setItem('chickenHighScore', score);
           highScore = Math.max(score, hs);
           state = 'dead';
@@ -1215,7 +1216,7 @@ function drawIdleScreen() {
 }
 
 function drawDeadScreen() {
-  const isNewHigh = score > 0 && score === highScore;
+  // isNewHigh is the global flag set exactly once at game-over time
 
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fillRect(0, 0, W, H);
