@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skaczaca Kulka — Chicken Egg Jump</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a2e; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+    canvas { display: block; border: 3px solid #444; border-radius: 8px; box-shadow: 0 0 40px rgba(0,0,0,0.6); }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+// ─── Canvas setup ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = 900, H = 400;
+canvas.width = W; canvas.height = H;
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const GROUND_Y      = H * 0.80;   // y of the ground surface
+const GRAVITY       = 0.55;
+const JUMP_FORCE    = -13;
+const CHICKEN_X     = 130;
+const CHICKEN_W     = 52;
+const CHICKEN_H     = 58;
+const SQUAT_H       = 24;   // hitbox height when squatting
+
+// ─── Game state ──────────────────────────────────────────────────────────────
+let state = 'idle';   // 'idle' | 'playing' | 'dead'
+let score, highScore, eggs, floaters;
+let spawnInterval, diffInterval;
+let currentSpeed, spawnDelay;
+let chicken, keys;
+let animId;
+
+// ─── Input ───────────────────────────────────────────────────────────────────
+keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'ArrowUp' || e.code === 'ArrowDown') e.preventDefault();
+  if ((e.code === 'Space') && state !== 'playing') startGame();
+});
+document.addEventListener('keyup', e => keys[e.code] = false);
+canvas.addEventListener('click', () => { if (state !== 'playing') startGame(); });
+
+// ─── Init / reset ────────────────────────────────────────────────────────────
+function startGame() {
+  score       = 0;
+  eggs        = [];
+  floaters    = [];
+  currentSpeed = 4.5;
+  spawnDelay   = 1800;
+
+  chicken = {
+    x: CHICKEN_X,
+    y: GROUND_Y - CHICKEN_H,
+    vy: 0,
+    onGround: true,
+    squatting: false,
+    frame: 0,
+    frameTimer: 0
+  };
+
+  clearInterval(spawnInterval);
+  clearInterval(diffInterval);
+  cancelAnimationFrame(animId);
+
+  scheduleSpawner();
+
+  // Increase difficulty every 10 s
+  diffInterval = setInterval(() => {
+    if (state !== 'playing') return;
+    currentSpeed = Math.min(currentSpeed + 0.6, 14);
+    spawnDelay   = Math.max(spawnDelay - 120, 400);
+    scheduleSpawner();
+  }, 10000);
+
+  state = 'playing';
+  loop();
+}
+
+function scheduleSpawner() {
+  clearInterval(spawnInterval);
+  spawnInterval = setInterval(spawnEgg, spawnDelay);
+}
+
+// ─── Spawning ────────────────────────────────────────────────────────────────
+// TALL_EGG_BOTTOM: how low the wall egg reaches — must be above squat hitbox top (GROUND_Y - SQUAT_H)
+const TALL_EGG_BOTTOM = GROUND_Y - SQUAT_H - 4;  // ~GROUND_Y-28, leaves gap for squatting
+
+function spawnEgg() {
+  if (state !== 'playing') return;
+  const r = Math.random();
+
+  // ~20% chance of a "wall" scrambled egg that forces squatting (cannot jump over)
+  if (r < 0.20) {
+    eggs.push({ x: W + 40, y: 0, type: 'scrambled', tall: true,
+                speed: currentSpeed + (Math.random() * 0.6 - 0.3) });
+    return;
+  }
+
+  // Normal eggs — ground / high / whole
+  const type = Math.random() < 0.35 ? 'whole' : 'scrambled';
+  let y;
+  const r2 = Math.random();
+  if (r2 < 0.50)      y = GROUND_Y - 18;   // ground (jump to avoid scrambled)
+  else if (r2 < 0.80) y = GROUND_Y - 102;  // high   (jump to collect whole)
+  else                y = GROUND_Y - 44;   // mid    (squat to avoid scrambled)
+  eggs.push({ x: W + 30, y, type, tall: false, speed: currentSpeed + (Math.random() * 1 - 0.5) });
+}
+
+// ─── Collision (AABB) ─────────────────────────────────────────────────────────
+function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+
+// ─── Game loop ───────────────────────────────────────────────────────────────
+function loop() {
+  update();
+  draw();
+  if (state === 'playing') animId = requestAnimationFrame(loop);
+}
+
+function update() {
+  // Chicken physics
+  chicken.vy += GRAVITY;
+  chicken.y  += chicken.vy;
+
+  if (chicken.y >= GROUND_Y - CHICKEN_H) {
+    chicken.y = GROUND_Y - CHICKEN_H;
+    chicken.vy = 0;
+    chicken.onGround = true;
+  } else {
+    chicken.onGround = false;
+  }
+
+  // Squat (only on ground)
+  chicken.squatting = keys['ArrowDown'] && chicken.onGround;
+
+  // Jump (blocked while squatting)
+  if (keys['ArrowUp'] && chicken.onGround && !chicken.squatting) {
+    chicken.vy = JUMP_FORCE;
+    chicken.onGround = false;
+  }
+  // Fast fall (in air only)
+  if (keys['ArrowDown'] && !chicken.onGround && chicken.vy < 0) {
+    chicken.vy *= 0.4;
+  }
+
+  // Leg animation frame
+  if (chicken.onGround && !chicken.squatting) {
+    chicken.frameTimer++;
+    if (chicken.frameTimer > 10) { chicken.frame = 1 - chicken.frame; chicken.frameTimer = 0; }
+  }
+
+  // Collision hitbox — smaller when squatting
+  const squatting = chicken.squatting;
+  const cHitX = chicken.x + 6;
+  const cHitW = CHICKEN_W - 12;
+  const cHitY = squatting ? GROUND_Y - SQUAT_H + 2 : chicken.y + 6;
+  const cHitH = squatting ? SQUAT_H - 4 : CHICKEN_H - 6;
+
+  for (let i = eggs.length - 1; i >= 0; i--) {
+    const e = eggs[i];
+    e.x -= e.speed;
+
+    const eW = e.tall ? 42 : (e.type === 'whole' ? 28 : 36);
+    const eH = e.tall ? TALL_EGG_BOTTOM - 5 : (e.type === 'whole' ? 36 : 28);
+    const eX = e.x - eW / 2;
+    const eY = e.tall ? 5 : e.y - eH / 2;
+
+    if (rectsOverlap(cHitX, cHitY, cHitW, cHitH, eX, eY, eW, eH)) {
+      if (e.type === 'whole') {
+        score += 10;
+        floaters.push({ x: e.x, y: e.y, text: '+10', alpha: 1, vy: -1.8 });
+        eggs.splice(i, 1);
+      } else {
+        // Scrambled egg hit → game over
+        clearInterval(spawnInterval);
+        clearInterval(diffInterval);
+        const hs = parseInt(localStorage.getItem('chickenHighScore') || '0');
+        if (score > hs) localStorage.setItem('chickenHighScore', score);
+        highScore = Math.max(score, hs);
+        state = 'dead';
+        // Draw one last frame then stop
+        draw();
+        return;
+      }
+    }
+
+    if (e.x < -60) eggs.splice(i, 1);
+  }
+
+  // Floating score texts
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    floaters[i].y  += floaters[i].vy;
+    floaters[i].alpha -= 0.025;
+    if (floaters[i].alpha <= 0) floaters.splice(i, 1);
+  }
+}
+
+// ─── Drawing helpers ─────────────────────────────────────────────────────────
+function drawBackground() {
+  // Sky gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  sky.addColorStop(0, '#87CEEB');
+  sky.addColorStop(1, '#d0f0ff');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, GROUND_Y);
+
+  // Sun
+  ctx.beginPath();
+  ctx.arc(W - 80, 55, 38, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFE135';
+  ctx.fill();
+
+  // Clouds
+  drawCloud(200, 60, 0.9);
+  drawCloud(520, 40, 1.1);
+  drawCloud(730, 80, 0.7);
+
+  // Ground
+  ctx.fillStyle = '#5a9e3a';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  ctx.fillStyle = '#4a8a2a';
+  ctx.fillRect(0, GROUND_Y, W, 6);
+
+  // Ground texture lines
+  ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 10; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * 100 - ((Date.now() / 10 * (currentSpeed / 4)) % 100), GROUND_Y + 12);
+    ctx.lineTo(i * 100 - ((Date.now() / 10 * (currentSpeed / 4)) % 100) + 50, GROUND_Y + 12);
+    ctx.stroke();
+  }
+}
+
+function drawCloud(x, y, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.arc(0,   0, 20, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(25,  -5, 28, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(55,  0, 20, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(15,  10, 18, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(40,  10, 22, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawChicken(ch) {
+  if (ch.squatting) { drawChickenSquat(ch); return; }
+
+  const x = ch.x, y = ch.y;
+  ctx.save();
+
+  // Legs
+  const legSpread = ch.frame === 0 ? 6 : -3;
+  ctx.strokeStyle = '#e07b00';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+
+  // Left leg
+  ctx.beginPath();
+  ctx.moveTo(x + 18, y + CHICKEN_H - 4);
+  ctx.lineTo(x + 18 - legSpread, y + CHICKEN_H + 10);
+  ctx.lineTo(x + 8  - legSpread, y + CHICKEN_H + 10);
+  ctx.stroke();
+
+  // Right leg
+  ctx.beginPath();
+  ctx.moveTo(x + 34, y + CHICKEN_H - 4);
+  ctx.lineTo(x + 34 + legSpread, y + CHICKEN_H + 10);
+  ctx.lineTo(x + 44 + legSpread, y + CHICKEN_H + 10);
+  ctx.stroke();
+
+  // Body
+  ctx.beginPath();
+  ctx.ellipse(x + CHICKEN_W / 2, y + CHICKEN_H * 0.58, CHICKEN_W / 2 - 2, CHICKEN_H * 0.38, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFD700';
+  ctx.fill();
+  ctx.strokeStyle = '#c8a800';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Wing
+  ctx.beginPath();
+  ctx.ellipse(x + CHICKEN_W / 2 + 4, y + CHICKEN_H * 0.6, CHICKEN_W / 2 - 10, CHICKEN_H * 0.22, -0.3, 0, Math.PI * 2);
+  ctx.fillStyle = '#e8c000';
+  ctx.fill();
+
+  // Head
+  const headCX = x + CHICKEN_W * 0.72, headCY = y + CHICKEN_H * 0.25;
+  ctx.beginPath();
+  ctx.arc(headCX, headCY, 16, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFD700';
+  ctx.fill();
+  ctx.strokeStyle = '#c8a800';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Comb (3 bumps)
+  ctx.fillStyle = '#e02020';
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.arc(headCX - 6 + i * 7, headCY - 14, 5, Math.PI, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Eye
+  ctx.beginPath();
+  ctx.arc(headCX + 6, headCY - 2, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#111';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(headCX + 7, headCY - 3, 1.2, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+
+  // Beak
+  ctx.beginPath();
+  ctx.moveTo(headCX + 13, headCY + 1);
+  ctx.lineTo(headCX + 22, headCY + 4);
+  ctx.lineTo(headCX + 13, headCY + 7);
+  ctx.closePath();
+  ctx.fillStyle = '#e07b00';
+  ctx.fill();
+
+  // Wattle
+  ctx.beginPath();
+  ctx.ellipse(headCX + 11, headCY + 9, 4, 6, 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = '#e02020';
+  ctx.fill();
+
+  // Tail feathers
+  ctx.beginPath();
+  ctx.moveTo(x + 4, y + CHICKEN_H * 0.42);
+  ctx.bezierCurveTo(x - 14, y + CHICKEN_H * 0.1, x - 6, y + CHICKEN_H * 0.62, x + 2, y + CHICKEN_H * 0.65);
+  ctx.fillStyle = '#e8c000';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawChickenSquat(ch) {
+  const x = ch.x;
+  const ground = GROUND_Y;        // feet rest here
+  const bodyY  = ground - 14;     // centre of flat squatted body
+
+  ctx.save();
+
+  // Bent legs (short stubs close to body)
+  ctx.strokeStyle = '#e07b00';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(x + 16, bodyY + 8);
+  ctx.lineTo(x + 10, ground + 2);
+  ctx.lineTo(x + 2,  ground + 2);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(x + 38, bodyY + 8);
+  ctx.lineTo(x + 44, ground + 2);
+  ctx.lineTo(x + 54, ground + 2);
+  ctx.stroke();
+
+  // Flattened body (wide, low ellipse)
+  ctx.beginPath();
+  ctx.ellipse(x + CHICKEN_W / 2, bodyY, CHICKEN_W / 2 + 10, 11, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFD700';
+  ctx.fill();
+  ctx.strokeStyle = '#c8a800';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Wing (flat against body)
+  ctx.beginPath();
+  ctx.ellipse(x + CHICKEN_W / 2 + 4, bodyY + 2, CHICKEN_W / 2, 7, -0.15, 0, Math.PI * 2);
+  ctx.fillStyle = '#e8c000';
+  ctx.fill();
+
+  // Tail feathers (low, fanned out behind)
+  ctx.beginPath();
+  ctx.moveTo(x + 3, bodyY - 3);
+  ctx.bezierCurveTo(x - 16, bodyY - 10, x - 10, bodyY + 8, x + 1, bodyY + 9);
+  ctx.fillStyle = '#e8c000';
+  ctx.fill();
+
+  // Head pulled forward and low (beside body, not above)
+  const headCX = x + CHICKEN_W + 2, headCY = bodyY - 1;
+  ctx.beginPath();
+  ctx.arc(headCX, headCY, 13, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFD700';
+  ctx.fill();
+  ctx.strokeStyle = '#c8a800';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Comb (flattened / sideways because head is low)
+  ctx.fillStyle = '#e02020';
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.arc(headCX - 3 + i * 5, headCY - 11, 4, Math.PI, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Eye
+  ctx.beginPath();
+  ctx.arc(headCX + 5, headCY, 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#111';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(headCX + 6, headCY - 1, 1, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+
+  // Beak (pointing forward)
+  ctx.beginPath();
+  ctx.moveTo(headCX + 11, headCY - 1);
+  ctx.lineTo(headCX + 20, headCY + 2);
+  ctx.lineTo(headCX + 11, headCY + 5);
+  ctx.closePath();
+  ctx.fillStyle = '#e07b00';
+  ctx.fill();
+
+  // Wattle
+  ctx.beginPath();
+  ctx.ellipse(headCX + 9, headCY + 7, 3.5, 5, 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = '#e02020';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawWholeEgg(x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Shadow
+  ctx.beginPath();
+  ctx.ellipse(0, 22, 14, 5, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fill();
+
+  // Egg body
+  ctx.beginPath();
+  ctx.moveTo(0, -20);
+  ctx.bezierCurveTo(14, -20, 18, -5, 18, 6);
+  ctx.bezierCurveTo(18, 18, 10, 22, 0, 22);
+  ctx.bezierCurveTo(-10, 22, -18, 18, -18, 6);
+  ctx.bezierCurveTo(-18, -5, -14, -20, 0, -20);
+  ctx.closePath();
+  ctx.fillStyle = '#fffff0';
+  ctx.fill();
+  ctx.strokeStyle = '#ddd';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Highlight
+  ctx.beginPath();
+  ctx.ellipse(-5, -8, 4, 7, -0.5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawScrambledEgg(x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Shadow
+  ctx.beginPath();
+  ctx.ellipse(0, 18, 20, 6, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fill();
+
+  // Egg white blobs
+  ctx.fillStyle = '#fffde0';
+  ctx.beginPath();
+  ctx.ellipse(-6, 4, 16, 10, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(8, 2, 13, 9, 0.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(0, 10, 12, 8, 0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Yolk (messy, broken)
+  ctx.beginPath();
+  ctx.ellipse(2, 2, 9, 7, 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = '#f5a623';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(-8, 6, 5, 4, -0.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#f5a623';
+  ctx.fill();
+
+  // Yolk drips
+  ctx.strokeStyle = '#f5a623';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(8, 5);
+  ctx.bezierCurveTo(12, 8, 14, 14, 10, 18);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-4, 10);
+  ctx.bezierCurveTo(-6, 13, -5, 17, -8, 20);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawTallScrambledEgg(x) {
+  const top    = 5;
+  const bottom = TALL_EGG_BOTTOM;
+  const halfW  = 21;
+
+  ctx.save();
+  ctx.translate(x, 0);
+
+  // Egg-white base (tall band)
+  ctx.fillStyle = '#fffde0';
+  ctx.beginPath();
+  ctx.roundRect(-halfW, top, halfW * 2, bottom - top, 8);
+  ctx.fill();
+
+  // Wavy edge on left side (incoming direction) for splat feel
+  ctx.fillStyle = '#fff5b0';
+  for (let yy = top + 10; yy < bottom - 10; yy += 28) {
+    ctx.beginPath();
+    ctx.ellipse(-halfW - 6, yy, 10, 9, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(halfW + 5, yy + 14, 8, 7, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Yolk blobs scattered throughout
+  const yolkPositions = [
+    [0,   top + 25, 9, 7, 0.2],
+    [-6,  top + 65, 8, 6, -0.3],
+    [7,   top + 105, 10, 7, 0.4],
+    [-4,  top + 145, 8, 6, -0.1],
+    [5,   top + 185, 9, 7, 0.3],
+    [-3,  top + 225, 8, 6, -0.2],
+  ];
+  ctx.fillStyle = '#f5a623';
+  yolkPositions.forEach(([px, py, rx, ry, rot]) => {
+    if (py < bottom - 10) {
+      ctx.beginPath();
+      ctx.ellipse(px, py, rx, ry, rot, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // Drips from bottom edge
+  ctx.strokeStyle = '#f5a623';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  [[-8, bottom], [3, bottom - 4], [12, bottom - 2]].forEach(([dx, dy]) => {
+    ctx.beginPath();
+    ctx.moveTo(dx, dy);
+    ctx.bezierCurveTo(dx - 2, dy + 8, dx + 3, dy + 14, dx, dy + 18);
+    ctx.stroke();
+  });
+
+  // White drips too
+  ctx.strokeStyle = 'rgba(255,253,200,0.8)';
+  ctx.lineWidth = 2.5;
+  [[-14, bottom - 2], [8, bottom - 6]].forEach(([dx, dy]) => {
+    ctx.beginPath();
+    ctx.moveTo(dx, dy);
+    ctx.bezierCurveTo(dx + 2, dy + 7, dx - 2, dy + 12, dx + 1, dy + 16);
+    ctx.stroke();
+  });
+
+  // Outline
+  ctx.strokeStyle = '#d4b800';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(-halfW, top, halfW * 2, bottom - top, 8);
+  ctx.stroke();
+
+  // Warning label
+  ctx.fillStyle = 'rgba(220,50,50,0.85)';
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('SQUAT!', 0, top + 14);
+
+  ctx.restore();
+}
+
+function drawHUD() {
+  // Score
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(12, 12, 160, 40);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 22px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`Score: ${score}`, 22, 37);
+
+  // High score
+  const hs = parseInt(localStorage.getItem('chickenHighScore') || '0');
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(W - 192, 12, 180, 40);
+  ctx.fillStyle = '#FFD700';
+  ctx.textAlign = 'right';
+  ctx.fillText(`Best: ${Math.max(score, hs)}`, W - 22, 37);
+}
+
+function drawFloaters() {
+  floaters.forEach(f => {
+    ctx.save();
+    ctx.globalAlpha = f.alpha;
+    ctx.fillStyle = '#00e676';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(f.text, f.x, f.y);
+    ctx.restore();
+  });
+}
+
+function drawIdleScreen() {
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 52px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('CHICKEN EGG JUMP', W / 2, H / 2 - 60);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px monospace';
+  ctx.fillText('Collect whole eggs  |  Avoid scrambled eggs!', W / 2, H / 2 - 10);
+  ctx.fillText('UP = jump   DOWN (ground) = squat   DOWN (air) = fast fall', W / 2, H / 2 + 25);
+
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 26px monospace';
+  const blink = Math.floor(Date.now() / 500) % 2 === 0;
+  if (blink) ctx.fillText('PRESS SPACE or CLICK to start', W / 2, H / 2 + 80);
+}
+
+function drawDeadScreen() {
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#ff4444';
+  ctx.font = 'bold 54px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('GAME OVER', W / 2, H / 2 - 60);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 28px monospace';
+  ctx.fillText(`Score: ${score}`, W / 2, H / 2 - 10);
+
+  ctx.fillStyle = '#FFD700';
+  ctx.font = '22px monospace';
+  ctx.fillText(`High Score: ${highScore}`, W / 2, H / 2 + 30);
+
+  ctx.fillStyle = '#aaa';
+  ctx.font = '20px monospace';
+  const blink = Math.floor(Date.now() / 500) % 2 === 0;
+  if (blink) ctx.fillText('PRESS SPACE or CLICK to restart', W / 2, H / 2 + 80);
+}
+
+// ─── Main draw ───────────────────────────────────────────────────────────────
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+
+  if (state === 'idle') {
+    // Draw static chicken on idle screen
+    drawChicken({ x: CHICKEN_X, y: GROUND_Y - CHICKEN_H, frame: 0, frameTimer: 0, onGround: true });
+    drawIdleScreen();
+    return;
+  }
+
+  // Eggs
+  eggs.forEach(e => {
+    if (e.tall)             drawTallScrambledEgg(e.x);
+    else if (e.type === 'whole') drawWholeEgg(e.x, e.y);
+    else                    drawScrambledEgg(e.x, e.y);
+  });
+
+  drawChicken(chicken);
+  drawFloaters();
+  drawHUD();
+
+  if (state === 'dead') drawDeadScreen();
+}
+
+// ─── Idle animation loop ─────────────────────────────────────────────────────
+function idleLoop() {
+  if (state === 'idle') {
+    draw();
+    requestAnimationFrame(idleLoop);
+  }
+}
+
+// Start with idle screen
+idleLoop();
+</script>
+</body>
+</html>
