@@ -1,4 +1,4 @@
-const CACHE = 'chicken-jump-v2';
+const CACHE = 'chicken-jump-1775163651';
 const ASSETS = [
   '/EasterChickenJump/',
   '/EasterChickenJump/index.html',
