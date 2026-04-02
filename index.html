@@ -87,6 +87,10 @@ let currentSpeed, spawnDelay;
 let chicken, keys;
 let animId;
 let deathAnim = null, confetti = [];
+let deadSince = 0;  // timestamp when game ended
+const DEAD_DELAY = 2000; // ms before restart is allowed
+
+function canRestart() { return state !== 'playing' && (state !== 'dead' || Date.now() - deadSince >= DEAD_DELAY); }
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
 let audioCtx = null;
@@ -243,15 +247,15 @@ document.addEventListener('keydown', e => {
   getAudio(); // unblock AudioContext on first keypress
   keys[e.code] = true;
   if (e.code === 'ArrowUp' || e.code === 'ArrowDown') e.preventDefault();
-  if ((e.code === 'Space') && state !== 'playing') startGame();
+  if ((e.code === 'Space') && canRestart()) startGame();
 });
 document.addEventListener('keyup', e => keys[e.code] = false);
-canvas.addEventListener('click', () => { getAudio(); if (state !== 'playing') startGame(); });
+canvas.addEventListener('click', () => { getAudio(); if (canRestart()) startGame(); });
 
 // Touch controls
 function bindBtn(id, code) {
   const btn = document.getElementById(id);
-  btn.addEventListener('touchstart', e => { e.preventDefault(); getAudio(); keys[code] = true;  if (state !== 'playing') startGame(); }, { passive: false });
+  btn.addEventListener('touchstart', e => { e.preventDefault(); getAudio(); keys[code] = true;  if (canRestart()) startGame(); }, { passive: false });
   btn.addEventListener('touchend',   e => { e.preventDefault(); keys[code] = false; }, { passive: false });
 }
 bindBtn('btnJump',  'ArrowUp');
@@ -417,6 +421,7 @@ function update() {
           if (isNewHigh) localStorage.setItem('chickenHighScore', score);
           highScore = Math.max(score, hs);
           state = 'dead';
+          deadSince = Date.now();
           if (isNewHigh) sndHighScore(); else sndGameOver();
           initDeathAnim(isNewHigh);
           deadLoop();
