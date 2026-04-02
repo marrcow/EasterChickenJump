@@ -113,7 +113,8 @@ function startGame() {
     onGround: true,
     squatting: false,
     frame: 0,
-    frameTimer: 0
+    frameTimer: 0,
+    immortalUntil: 0
   };
 
   clearInterval(spawnInterval);
@@ -161,7 +162,8 @@ function spawnEgg() {
   if (r2 < 0.50)      y = GROUND_Y - 18;   // ground (jump to avoid scrambled)
   else if (r2 < 0.80) y = GROUND_Y - 102;  // high   (jump to collect whole)
   else                y = GROUND_Y - 44;   // mid    (squat to avoid scrambled)
-  eggs.push({ x: W + 30, y, type, tall: false, speed: currentSpeed + (Math.random() * 1 - 0.5) });
+  const power = type === 'whole' && Math.random() < 0.30;
+  eggs.push({ x: W + 30, y, type, tall: false, power, speed: currentSpeed + (Math.random() * 1 - 0.5) });
 }
 
 // ─── Collision (AABB) ─────────────────────────────────────────────────────────
@@ -227,19 +229,29 @@ function update() {
     if (rectsOverlap(cHitX, cHitY, cHitW, cHitH, eX, eY, eW, eH)) {
       if (e.type === 'whole') {
         score += 10;
-        floaters.push({ x: e.x, y: e.y, text: '+10', alpha: 1, vy: -1.8 });
+        if (e.power) {
+          chicken.immortalUntil = Date.now() + 5000;
+          floaters.push({ x: e.x, y: e.y, text: 'INVINCIBLE!', alpha: 1, vy: -2, big: true });
+        } else {
+          floaters.push({ x: e.x, y: e.y, text: '+10', alpha: 1, vy: -1.8 });
+        }
         eggs.splice(i, 1);
       } else {
-        // Scrambled egg hit → game over
-        clearInterval(spawnInterval);
-        clearInterval(diffInterval);
-        const hs = parseInt(localStorage.getItem('chickenHighScore') || '0');
-        if (score > hs) localStorage.setItem('chickenHighScore', score);
-        highScore = Math.max(score, hs);
-        state = 'dead';
-        // Draw one last frame then stop
-        draw();
-        return;
+        if (Date.now() < chicken.immortalUntil) {
+          // Immortal — destroy the scrambled egg
+          floaters.push({ x: e.x, y: e.y, text: '💥', alpha: 1, vy: -2 });
+          eggs.splice(i, 1);
+        } else {
+          // Scrambled egg hit → game over
+          clearInterval(spawnInterval);
+          clearInterval(diffInterval);
+          const hs = parseInt(localStorage.getItem('chickenHighScore') || '0');
+          if (score > hs) localStorage.setItem('chickenHighScore', score);
+          highScore = Math.max(score, hs);
+          state = 'dead';
+          draw();
+          return;
+        }
       }
     }
 
@@ -305,10 +317,27 @@ function drawCloud(x, y, scale) {
 }
 
 function drawChicken(ch) {
-  if (ch.squatting) { drawChickenSquat(ch); return; }
+  const now = Date.now();
+  const immortal = ch.immortalUntil > now;
+  if (immortal) {
+    const timeLeft = ch.immortalUntil - now;
+    const blinkRate = timeLeft < 1500 ? 70 : 140;
+    if (Math.floor(now / blinkRate) % 2 === 0) return; // blink by skipping draw
+  }
+
+  if (ch.squatting) { drawChickenSquat(ch, immortal); return; }
 
   const x = ch.x, y = ch.y;
   ctx.save();
+
+  // Golden glow when immortal
+  if (immortal) {
+    const pulse = 0.5 + 0.5 * Math.sin(now / 100);
+    ctx.beginPath();
+    ctx.ellipse(x + CHICKEN_W / 2, y + CHICKEN_H / 2, CHICKEN_W / 2 + 12 + pulse * 6, CHICKEN_H / 2 + 10 + pulse * 4, 0, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 215, 0, ${0.25 + 0.2 * pulse})`;
+    ctx.fill();
+  }
 
   // Legs
   const legSpread = ch.frame === 0 ? 6 : -3;
@@ -398,12 +427,21 @@ function drawChicken(ch) {
   ctx.restore();
 }
 
-function drawChickenSquat(ch) {
+function drawChickenSquat(ch, immortal) {
   const x = ch.x;
-  const ground = GROUND_Y;        // feet rest here
-  const bodyY  = ground - 14;     // centre of flat squatted body
+  const ground = GROUND_Y;
+  const bodyY  = ground - 14;
+  const now = Date.now();
 
   ctx.save();
+
+  if (immortal) {
+    const pulse = 0.5 + 0.5 * Math.sin(now / 100);
+    ctx.beginPath();
+    ctx.ellipse(x + CHICKEN_W / 2, bodyY, CHICKEN_W / 2 + 18, 20 + pulse * 4, 0, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 215, 0, ${0.25 + 0.2 * pulse})`;
+    ctx.fill();
+  }
 
   // Bent legs (short stubs close to body)
   ctx.strokeStyle = '#e07b00';
@@ -490,9 +528,34 @@ function drawChickenSquat(ch) {
   ctx.restore();
 }
 
-function drawWholeEgg(x, y) {
+function drawWholeEgg(x, y, power) {
+  const t = Date.now();
   ctx.save();
   ctx.translate(x, y);
+
+  if (power) {
+    // Pulsing golden glow
+    const pulse = 0.5 + 0.5 * Math.sin(t / 120);
+    ctx.save();
+    ctx.globalAlpha = 0.35 + 0.35 * pulse;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 26 + pulse * 8, 30 + pulse * 8, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFD700';
+    ctx.fill();
+    ctx.restore();
+
+    // Sparkles around egg
+    const sparkCount = 5;
+    for (let i = 0; i < sparkCount; i++) {
+      const angle = (t / 400) + (i / sparkCount) * Math.PI * 2;
+      const dist  = 24 + 4 * Math.sin(t / 200 + i);
+      const sx = Math.cos(angle) * dist, sy = Math.sin(angle) * dist * 0.7;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = i % 2 === 0 ? '#FFD700' : '#fff';
+      ctx.fill();
+    }
+  }
 
   // Shadow
   ctx.beginPath();
@@ -500,7 +563,10 @@ function drawWholeEgg(x, y) {
   ctx.fillStyle = 'rgba(0,0,0,0.18)';
   ctx.fill();
 
-  // Egg body
+  // Egg body — golden tint if power, blinking between gold and white
+  const eggColor = power
+    ? (Math.floor(t / 200) % 2 === 0 ? '#FFE97A' : '#fffde0')
+    : '#fffff0';
   ctx.beginPath();
   ctx.moveTo(0, -20);
   ctx.bezierCurveTo(14, -20, 18, -5, 18, 6);
@@ -508,9 +574,9 @@ function drawWholeEgg(x, y) {
   ctx.bezierCurveTo(-10, 22, -18, 18, -18, 6);
   ctx.bezierCurveTo(-18, -5, -14, -20, 0, -20);
   ctx.closePath();
-  ctx.fillStyle = '#fffff0';
+  ctx.fillStyle = eggColor;
   ctx.fill();
-  ctx.strokeStyle = '#ddd';
+  ctx.strokeStyle = power ? '#c8a800' : '#ddd';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
@@ -673,10 +739,20 @@ function drawFloaters() {
   floaters.forEach(f => {
     ctx.save();
     ctx.globalAlpha = f.alpha;
-    ctx.fillStyle = '#00e676';
-    ctx.font = 'bold 20px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(f.text, f.x, f.y);
+    if (f.big) {
+      ctx.font = 'bold 26px monospace';
+      ctx.fillStyle = '#FFD700';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 3;
+      ctx.textAlign = 'center';
+      ctx.strokeText(f.text, f.x, f.y);
+      ctx.fillText(f.text, f.x, f.y);
+    } else {
+      ctx.fillStyle = '#00e676';
+      ctx.font = 'bold 20px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(f.text, f.x, f.y);
+    }
     ctx.restore();
   });
 }
@@ -739,7 +815,7 @@ function draw() {
   // Eggs
   eggs.forEach(e => {
     if (e.tall)             drawTallScrambledEgg(e.x);
-    else if (e.type === 'whole') drawWholeEgg(e.x, e.y);
+    else if (e.type === 'whole') drawWholeEgg(e.x, e.y, e.power);
     else                    drawScrambledEgg(e.x, e.y);
   });
 
