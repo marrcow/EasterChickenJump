@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="#1a1a2e"/>
+
+  <!-- Sun -->
+  <circle cx="400" cy="90" r="48" fill="#FFE135"/>
+
+  <!-- Ground -->
+  <rect x="0" y="380" width="512" height="132" fill="#5a9e3a"/>
+  <rect x="0" y="380" width="512" height="10" fill="#4a8a2a"/>
+
+  <!-- Sky -->
+  <rect x="0" y="0" width="512" height="380" rx="0" fill="#87CEEB" opacity="0.3"/>
+
+  <!-- Chicken body -->
+  <ellipse cx="210" cy="310" rx="90" ry="65" fill="#FFD700"/>
+  <ellipse cx="215" cy="315" rx="72" ry="44" fill="#e8c000"/>
+
+  <!-- Tail feathers -->
+  <ellipse cx="128" cy="285" rx="38" ry="18" transform="rotate(-30 128 285)" fill="#e8c000"/>
+  <ellipse cx="115" cy="300" rx="32" ry="14" transform="rotate(-50 115 300)" fill="#FFD700"/>
+
+  <!-- Wing -->
+  <ellipse cx="218" cy="318" rx="55" ry="32" transform="rotate(-10 218 318)" fill="#c8a800"/>
+
+  <!-- Head -->
+  <circle cx="295" cy="245" r="52" fill="#FFD700"/>
+  <circle cx="295" cy="245" r="52" fill="none" stroke="#c8a800" stroke-width="3"/>
+
+  <!-- Comb -->
+  <ellipse cx="275" cy="198" rx="14" ry="20" fill="#e02020"/>
+  <ellipse cx="295" cy="192" rx="14" ry="22" fill="#e02020"/>
+  <ellipse cx="315" cy="198" rx="13" ry="18" fill="#e02020"/>
+
+  <!-- Eye -->
+  <circle cx="318" cy="238" r="11" fill="#111"/>
+  <circle cx="322" cy="234" r="4" fill="#fff"/>
+
+  <!-- Beak -->
+  <polygon points="340,248 372,258 340,268" fill="#e07b00"/>
+
+  <!-- Wattle -->
+  <ellipse cx="348" cy="272" rx="10" ry="15" fill="#e02020"/>
+
+  <!-- Legs -->
+  <line x1="185" y1="368" x2="172" y2="390" stroke="#e07b00" stroke-width="8" stroke-linecap="round"/>
+  <line x1="172" y1="390" x2="148" y2="390" stroke="#e07b00" stroke-width="8" stroke-linecap="round"/>
+  <line x1="220" y1="368" x2="235" y2="390" stroke="#e07b00" stroke-width="8" stroke-linecap="round"/>
+  <line x1="235" y1="390" x2="260" y2="390" stroke="#e07b00" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Egg -->
+  <ellipse cx="420" cy="330" rx="28" ry="36" fill="#fffff0" stroke="#ddd" stroke-width="3"/>
+  <ellipse cx="412" cy="318" rx="7" ry="11" fill="rgba(255,255,255,0.6)" transform="rotate(-20 412 318)"/>
+</svg>

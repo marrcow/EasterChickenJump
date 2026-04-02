@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Easter Chicken Jump</title>
+  <link rel="manifest" href="manifest.json">
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ChickenJump">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <!-- Theme -->
+  <meta name="theme-color" content="#FFD700">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1a1a2e; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
@@ -1282,6 +1290,14 @@ function idleLoop() {
 
 // Start with idle screen
 idleLoop();
+
+// ─── Service worker registration ─────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/EasterChickenJump/sw.js')
+      .catch(() => {}); // silently ignore if offline or localhost
+  });
+}
 </script>
 </body>
 </html>

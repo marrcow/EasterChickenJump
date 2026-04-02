@@ -1,0 +1,29 @@
+{
+  "name": "Easter Chicken Jump",
+  "short_name": "ChickenJump",
+  "description": "Jump, squat and collect eggs — avoid the scrambled ones!",
+  "start_url": "/EasterChickenJump/",
+  "scope": "/EasterChickenJump/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#1a1a2e",
+  "theme_color": "#FFD700",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
