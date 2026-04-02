@@ -78,6 +78,7 @@ let spawnInterval, diffInterval;
 let currentSpeed, spawnDelay;
 let chicken, keys;
 let animId;
+let deathAnim = null, confetti = [];
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
 let audioCtx = null;
@@ -253,6 +254,8 @@ function startGame() {
   score       = 0;
   eggs        = [];
   floaters    = [];
+  deathAnim   = null;
+  confetti    = [];
   currentSpeed = 4.5;
   spawnDelay   = 1800;
 
@@ -407,6 +410,7 @@ function update() {
           highScore = Math.max(score, hs);
           state = 'dead';
           if (isNewHigh) sndHighScore(); else sndGameOver();
+          initDeathAnim(isNewHigh);
           deadLoop();
           return;
         }
@@ -875,6 +879,268 @@ function drawTallScrambledEgg(x) {
   ctx.restore();
 }
 
+// ─── Death animation ─────────────────────────────────────────────────────────
+function initDeathAnim(isNewHigh) {
+  const feathers = [];
+  const cx = CHICKEN_X + CHICKEN_W / 2 + 10;
+  const cy = GROUND_Y - CHICKEN_H * 0.55;
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 + Math.random() * 0.5;
+    feathers.push({
+      x: cx, y: cy,
+      vx: Math.cos(a) * (2.5 + Math.random() * 5),
+      vy: Math.sin(a) * (2.5 + Math.random() * 5) - 3,
+      rot: Math.random() * Math.PI * 2,
+      rotV: (Math.random() - 0.5) * 0.35,
+      alpha: 1,
+      size: 5 + Math.random() * 9,
+      color: Math.random() < 0.5 ? '#FFD700' : '#e8c000'
+    });
+  }
+  deathAnim = {
+    timer: 0, rotation: 0, rotSpeed: 0.22,
+    y: GROUND_Y - CHICKEN_H, vy: -7,
+    feathers
+  };
+  if (isNewHigh) initConfetti();
+}
+
+function updateDeathAnim() {
+  if (!deathAnim) return;
+  const da = deathAnim;
+  da.timer++;
+
+  // Spinning + bounce phase (first 75 frames ≈ 1.25s)
+  if (da.timer < 75) {
+    da.vy += 0.35;
+    da.y  += da.vy;
+    if (da.y >= GROUND_Y - CHICKEN_H) {
+      da.y   = GROUND_Y - CHICKEN_H;
+      da.vy  = da.timer < 55 ? da.vy * -0.45 : 0;
+    }
+    da.rotation += da.rotSpeed;
+    da.rotSpeed  = Math.max(da.rotSpeed - 0.001, 0.04); // slow spin over time
+  }
+
+  // Feathers
+  da.feathers.forEach(f => {
+    f.x   += f.vx;
+    f.y   += f.vy;
+    f.vy  += 0.18;
+    f.vx  *= 0.98;
+    f.rot += f.rotV;
+    f.alpha = Math.max(f.alpha - 0.010, 0);
+  });
+
+  updateConfetti();
+}
+
+function drawDeadChicken() {
+  if (!deathAnim) return;
+  const da  = deathAnim;
+  const cx  = CHICKEN_X + CHICKEN_W / 2 + 10;
+
+  // ── Feathers ──
+  da.feathers.forEach(f => {
+    if (f.alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = f.alpha;
+    ctx.translate(f.x, f.y);
+    ctx.rotate(f.rot);
+    ctx.fillStyle = f.color;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, f.size, f.size * 0.38, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  if (da.timer < 75) {
+    // ── Spinning phase ──
+    const spinCy = da.y + CHICKEN_H * 0.5;
+    ctx.save();
+    ctx.translate(cx, spinCy);
+    ctx.rotate(da.rotation);
+
+    // Body
+    ctx.beginPath();
+    ctx.ellipse(0, 4, CHICKEN_W / 2 - 2, CHICKEN_H * 0.37, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFD700'; ctx.fill();
+    ctx.strokeStyle = '#c8a800'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Wing
+    ctx.beginPath();
+    ctx.ellipse(4, 6, CHICKEN_W / 2 - 10, CHICKEN_H * 0.20, -0.3, 0, Math.PI * 2);
+    ctx.fillStyle = '#e8c000'; ctx.fill();
+
+    // Head
+    ctx.beginPath(); ctx.arc(18, -14, 13, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFD700'; ctx.fill();
+    ctx.strokeStyle = '#c8a800'; ctx.stroke();
+
+    // X eyes
+    _xEye(24, -17);
+
+    // Comb
+    ctx.fillStyle = '#e02020';
+    [0,1,2].forEach(i => { ctx.beginPath(); ctx.arc(14+i*5, -25, 4, Math.PI, Math.PI*2); ctx.fill(); });
+
+    // Beak
+    ctx.beginPath();
+    ctx.moveTo(28,-13); ctx.lineTo(37,-10); ctx.lineTo(28,-7);
+    ctx.fillStyle = '#e07b00'; ctx.fill();
+
+    // Tongue sticking out already
+    ctx.strokeStyle = '#e02020'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(34,-9); ctx.bezierCurveTo(38,-6,35,0,39,2); ctx.stroke();
+
+    ctx.restore();
+
+  } else {
+    // ── Settled: lying on back, legs in the air ──
+    const groundY = GROUND_Y - 10;
+    ctx.save();
+    ctx.translate(cx, groundY);
+
+    // Shadow
+    ctx.beginPath(); ctx.ellipse(0, 4, 34, 7, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fill();
+
+    // Body flat on back
+    ctx.beginPath();
+    ctx.ellipse(0, 0, CHICKEN_H * 0.37, CHICKEN_W / 2 - 3, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFD700'; ctx.fill();
+    ctx.strokeStyle = '#c8a800'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Wing
+    ctx.beginPath();
+    ctx.ellipse(2, 3, CHICKEN_H * 0.28, CHICKEN_W / 2 - 12, 0.1, 0, Math.PI * 2);
+    ctx.fillStyle = '#e8c000'; ctx.fill();
+
+    // Tail feathers (to the left)
+    ctx.beginPath();
+    ctx.moveTo(-22, -4); ctx.bezierCurveTo(-38, -14, -34, 8, -20, 8);
+    ctx.fillStyle = '#e8c000'; ctx.fill();
+
+    // Legs pointing up
+    ctx.strokeStyle = '#e07b00'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-8,-10); ctx.lineTo(-10,-28); ctx.lineTo(-20,-28); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(6,-10); ctx.lineTo(10,-28); ctx.lineTo(20,-28); ctx.stroke();
+
+    // Head to the right, flopped sideways
+    ctx.beginPath(); ctx.arc(28, 1, 13, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFD700'; ctx.fill();
+    ctx.strokeStyle = '#c8a800'; ctx.stroke();
+
+    // Comb flopped
+    ctx.fillStyle = '#e02020';
+    [0,1,2].forEach(i => { ctx.beginPath(); ctx.arc(24+i*4, -10, 4, Math.PI, Math.PI*2); ctx.fill(); });
+
+    // X eyes
+    _xEye(33, -2);
+
+    // Beak
+    ctx.beginPath(); ctx.moveTo(38,4); ctx.lineTo(47,7); ctx.lineTo(38,10);
+    ctx.fillStyle = '#e07b00'; ctx.fill();
+
+    // Tongue lolling out
+    ctx.strokeStyle = '#e02020'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(43, 8); ctx.bezierCurveTo(48, 10, 45, 17, 50, 19);
+    ctx.stroke();
+
+    // Stars orbiting head
+    const orbitR = 22;
+    for (let i = 0; i < 3; i++) {
+      const angle = (da.timer * 0.055) + (i / 3) * Math.PI * 2;
+      const sx = 28 + Math.cos(angle) * orbitR;
+      const sy = 1  + Math.sin(angle) * orbitR * 0.55;
+      _star(sx, sy, 6, 2.5, i === 0 ? '#FFD700' : '#fff');
+    }
+
+    // Speech bubble "BOCK?!"
+    const bx = 20, by = -36;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.beginPath(); ctx.roundRect(bx - 28, by - 16, 56, 22, 6); ctx.fill();
+    ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.stroke();
+    // bubble tail
+    ctx.beginPath(); ctx.moveTo(bx+4, by+6); ctx.lineTo(bx+12, by+16); ctx.lineTo(bx-2, by+6); ctx.fill();
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('BOCK?!', bx, by);
+
+    ctx.restore();
+  }
+}
+
+function _xEye(x, y) {
+  ctx.save();
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x-3.5,y-3.5); ctx.lineTo(x+3.5,y+3.5);
+  ctx.moveTo(x+3.5,y-3.5); ctx.lineTo(x-3.5,y+3.5);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function _star(cx, cy, r, ir, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const a1 = (i * 4 * Math.PI / 5) - Math.PI / 2;
+    const a2 = ((i * 4 + 2) * Math.PI / 5) - Math.PI / 2;
+    ctx[i === 0 ? 'moveTo' : 'lineTo'](cx + Math.cos(a1)*r, cy + Math.sin(a1)*r);
+    ctx.lineTo(cx + Math.cos(a2)*ir, cy + Math.sin(a2)*ir);
+  }
+  ctx.closePath(); ctx.fill();
+}
+
+// ─── Confetti ─────────────────────────────────────────────────────────────────
+const CONFETTI_COLORS = ['#FF6B6B','#FFD700','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7','#DDA0DD','#ff9ff3','#a29bfe'];
+
+function initConfetti() {
+  confetti = [];
+  for (let i = 0; i < 110; i++) {
+    confetti.push({
+      x: Math.random() * W,
+      y: -20 - Math.random() * 250,
+      vx: (Math.random() - 0.5) * 4,
+      vy: 1.8 + Math.random() * 3,
+      rot: Math.random() * Math.PI * 2,
+      rotV: (Math.random() - 0.5) * 0.22,
+      color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+      w: 10 + Math.random() * 9,
+      h: 5 + Math.random() * 5,
+      circle: Math.random() < 0.25
+    });
+  }
+}
+
+function updateConfetti() {
+  confetti.forEach(c => {
+    c.x   += c.vx;
+    c.y   += c.vy;
+    c.rot += c.rotV;
+    c.vx  += (Math.random() - 0.5) * 0.08;
+    if (c.y > H + 20) { c.y = -20; c.x = Math.random() * W; }
+  });
+}
+
+function drawConfetti() {
+  if (confetti.length === 0) return;
+  confetti.forEach(c => {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+    ctx.fillStyle = c.color;
+    if (c.circle) {
+      ctx.beginPath(); ctx.arc(0, 0, c.w / 2, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+    }
+    ctx.restore();
+  });
+}
+
 function drawHUD() {
   // Score
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
@@ -989,16 +1255,18 @@ function draw() {
     else                    drawScrambledEgg(e.x, e.y);
   });
 
-  drawChicken(chicken);
+  if (state === 'dead') drawDeadChicken();
+  else drawChicken(chicken);
   drawFloaters();
   drawHUD();
 
-  if (state === 'dead') drawDeadScreen();
+  if (state === 'dead') { drawDeadScreen(); drawConfetti(); }
 }
 
 // ─── Dead animation loop (keeps pulsing text alive) ──────────────────────────
 function deadLoop() {
   if (state === 'dead') {
+    updateDeathAnim();
     draw();
     requestAnimationFrame(deadLoop);
   }
