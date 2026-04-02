@@ -142,60 +142,90 @@ function sndHighScore() {
 }
 
 // ─── Background music ────────────────────────────────────────────────────────
-// A simple 32-note looping melody (C major, bouncy farm feel)
+// A minor melody — tense, driving, 8th-note grid
+// A4=440 C5=523 D5=587 E5=659 F5=698 G5=784 A5=880 B5=988
 const BG_MELODY = [
-  523,659,784,659, 523,659,784,880,
-  784,659,523,659, 523,440,392,440,
-  523,659,784,659, 880,784,659,523,
-  659,784,880,784, 659,523,392,523
+  440, 659, 523, 659,   440, 523, 784, 659,
+  698, 659, 523, 659,   440, 494, 523, 587,
+  659, 784, 880, 784,   659, 698, 659, 523,
+  440, 523, 659, 784,   880, 784, 659, 440
 ];
-// Accent every 4th note slightly louder for rhythmic feel
-const BG_ACCENT = [0.07, 0.04, 0.05, 0.04];
+// Bass note (A2/E2/D2) fired every 4 melody notes (= quarter note pulse)
+const BG_BASS  = [110, 110, 82, 98,  110, 110, 82, 82];
+// Per-8th-note volume accents: beat 1 loudest, beat 3 medium, off-beats soft
+const BG_VOL   = [0.11, 0.05, 0.07, 0.05, 0.09, 0.05, 0.07, 0.05];
 
-let bgPlaying = false, bgNoteIdx = 0, bgTimeout = null;
+let bgPlaying = false, bgNoteIdx = 0;
+let bgSchedulerTimer = null, bgNextNoteTime = 0;
 
 function bgBPM() {
-  // Map currentSpeed 4.5→14 to BPM 108→220
   const spd = (typeof currentSpeed !== 'undefined') ? currentSpeed : 4.5;
-  return 108 + ((spd - 4.5) / (14 - 4.5)) * 112;
+  return 160 + ((spd - 4.5) / (14 - 4.5)) * 140;  // 160 → 300 BPM
+}
+function bgBeatSec() { return 60 / bgBPM() / 2; }  // 8th-note duration
+
+function bgPlayNote(t) {
+  const ac  = getAudio();
+  const idx = bgNoteIdx % BG_MELODY.length;
+  const bs  = bgBeatSec();
+
+  // ── Melody (sawtooth — aggressive, cuts through) ──
+  const mOsc = ac.createOscillator(), mGain = ac.createGain();
+  mOsc.connect(mGain); mGain.connect(ac.destination);
+  mOsc.type = 'sawtooth';
+  mOsc.frequency.value = BG_MELODY[idx] * 0.5;   // one octave down
+  const vol = BG_VOL[idx % 8];
+  mGain.gain.setValueAtTime(0, t);
+  mGain.gain.linearRampToValueAtTime(vol, t + 0.008);
+  mGain.gain.exponentialRampToValueAtTime(0.001, t + bs * 0.55);
+  mOsc.start(t); mOsc.stop(t + bs * 0.6);
+
+  // ── Bass thump every 4 notes (square, punchy) ──
+  if (idx % 4 === 0) {
+    const bOsc = ac.createOscillator(), bGain = ac.createGain();
+    bOsc.connect(bGain); bGain.connect(ac.destination);
+    bOsc.type = 'square';
+    bOsc.frequency.value = BG_BASS[Math.floor(idx / 4) % BG_BASS.length];
+    bGain.gain.setValueAtTime(0, t);
+    bGain.gain.linearRampToValueAtTime(0.09, t + 0.010);
+    bGain.gain.exponentialRampToValueAtTime(0.001, t + bs * 3.2);
+    bOsc.start(t); bOsc.stop(t + bs * 3.3);
+  }
+
+  // ── Rhythm tick on beats 1 & 3 (triangle click) ──
+  if (idx % 4 === 0) {
+    const tOsc = ac.createOscillator(), tGain = ac.createGain();
+    tOsc.connect(tGain); tGain.connect(ac.destination);
+    tOsc.type = 'triangle';
+    tOsc.frequency.value = idx % 8 === 0 ? 1400 : 1000;  // accent beat 1
+    tGain.gain.setValueAtTime(idx % 8 === 0 ? 0.08 : 0.05, t);
+    tGain.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
+    tOsc.start(t); tOsc.stop(t + 0.04);
+  }
 }
 
-function scheduleBgNote() {
+function bgSchedule() {
   if (!bgPlaying) return;
-  const ac      = getAudio();
-  const idx     = bgNoteIdx % BG_MELODY.length;
-  const freq    = BG_MELODY[idx] * 0.5;   // one octave down — soft background
-  const beatMs  = 60000 / bgBPM();
-  const beatSec = beatMs / 1000;
-  const vol     = BG_ACCENT[idx % 4];
-
-  const osc  = ac.createOscillator();
-  const gain = ac.createGain();
-  osc.connect(gain);
-  gain.connect(ac.destination);
-  osc.type = 'triangle';
-  osc.frequency.value = freq;
-  const t = ac.currentTime;
-  gain.gain.setValueAtTime(0, t);
-  gain.gain.linearRampToValueAtTime(vol, t + 0.015);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + beatSec * 0.75);
-  osc.start(t);
-  osc.stop(t + beatSec * 0.80);
-
-  bgNoteIdx++;
-  bgTimeout = setTimeout(scheduleBgNote, beatMs * 0.97); // slight early reschedule avoids drift
+  const ac = getAudio();
+  while (bgNextNoteTime < ac.currentTime + 0.12) {
+    bgPlayNote(bgNextNoteTime);
+    bgNextNoteTime += bgBeatSec();  // recalc each note → tempo changes take effect immediately
+    bgNoteIdx++;
+  }
 }
 
 function startBgMusic() {
   stopBgMusic();
   bgPlaying = true;
   bgNoteIdx = 0;
-  scheduleBgNote();
+  bgNextNoteTime = getAudio().currentTime + 0.05;
+  bgSchedulerTimer = setInterval(bgSchedule, 40);
 }
 
 function stopBgMusic() {
   bgPlaying = false;
-  clearTimeout(bgTimeout);
+  clearInterval(bgSchedulerTimer);
+  bgSchedulerTimer = null;
 }
 
 // ─── Input ───────────────────────────────────────────────────────────────────
